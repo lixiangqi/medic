@@ -5,7 +5,10 @@
           scriblib/figure
           (for-label (except-in racket log export import remove)
                      racket/contract/base
-                     medic/trace))
+                     medic/trace
+                     (only-in medic/main 
+                              layer export import def in with-behavior ref each-function
+                              on-entry on-exit at)))
 
 @title{Medic Debugger}
 @author["Xiangqi Li"]

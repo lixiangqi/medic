@@ -4,11 +4,11 @@
 (require "medic-structs.rkt")
 
 (provide (rename-out [module-begin #%module-begin])
-         define log
+         log
          #%app #%top require #%datum
          #%top-interaction
          layer export import def in with-behavior ref each-function
-         on-entry on-exit at)
+         on-entry on-exit at function-name)
 
 
 (module reader syntax/module-reader
@@ -93,7 +93,7 @@
            (raise-syntax-error 'conflicting-identifiers 
                                (format "identifier ~v already imported" (syntax->datum #'src-id))
                                stx)
-           (let ([expands (flatten (map interpret-src-expr (syntax->list #'(src-expr ...))))])
+           (let ([expands (map interpret-src-expr (syntax->list #'(src-expr ...)))])
              (hash-set! src-table (syntax->datum #'src-id) expands)))]
       [(def debug-id #:debug expr ...) (identifier? #'debug-id) ; expr ... is lazy evaluated, may contain unexpanded (ref ...) form
        (hash-set! debug-table (syntax->datum #'debug-id) #'(expr ...))]
@@ -101,7 +101,7 @@
        (if flag
            (let ([fn (path->string 
                       (resolved-module-path-name 
-                       ((current-module-name-resolver) (syntax->datum #'id) #f #f)))])
+                       ((current-module-name-resolver) (syntax->datum #'id) #f #f #f)))])
              (unless (hash-has-key? insert-table fn)
                (hash-set! insert-table fn (make-hash)))
              (unless (hash-has-key? template fn)
@@ -269,34 +269,72 @@
                              (format "~a" (syntax->datum d))))
       (syntax-property (syntax-property s 'layer current-layer-id)
                        'stamp (cons counter original-e)))
+    
+    (define (process-ref stx)
+      (syntax-case stx (ref)
+        [(ref src-id)
+         (begin 
+           (define id (syntax->datum #'src-id))
+           (define exprs (hash-ref src-table id #f))
+           (cond
+             [exprs 
+              (quasisyntax/loc stx
+                (begin 
+                  #,@(map interpret-src-expr exprs)))]
+             [else
+              (let iterate ([lst import-table])
+                (when (null? lst)
+                  (raise-syntax-error 'refer-to-unbound-variable 
+                                      (format "id = ~v" id)
+                                      stx))
+                (if (member id (import-struct-exported (car lst)))
+                    (let ([found-expr (hash-ref (env-src-table (hash-ref global-env (import-struct-layer-id (car lst)))) id)])
+                      (quasisyntax/loc stx
+                        (begin  
+                          #,@(map interpret-src-expr found-expr))))
+                    (iterate (cdr lst))))]))]))
+    
+    (define (traverse s)
+      (cond
+        [(syntax? s)
+         (syntax-case s (ref aggregate timeline assert log same?)
+           [(ref src-id) (process-ref s)]
+           [(log v) (attach-stx-property s #'v)]
+           [(log v1 v2 ...) (process-log s)]
+           [(aggregate) 
+            (raise-syntax-error #f "invalid-medic-expression" s)]
+           [(aggregate v ...) 
+            (attach-stx-property s(syntax->list #'(v ...)))]
+           [(same? id) (not (identifier? #'id))
+            (raise-syntax-error #f "invalid-medic-expression" s)]
+           [(timeline id)
+            (attach-stx-property s #'id)]
+           [(assert cond)
+            (attach-stx-property s #'cond)]
+           [else (traverse (syntax-e s))])]
+        [(pair? s)
+         (let ([fs (car s)]
+               [ss (cdr s)])
+           (cons (traverse fs)
+                 (traverse ss)))]
+        [else s]))
+    
+    (define (process-log stx)
+      (syntax-case stx (log)
+        [(log v1 v2 ...)
+         (begin
+           (unless (equal? (length (regexp-match* "~a" (format "~a" (syntax->datum #'v1)))) (length (syntax->list #'(v2 ...))))
+             (raise-syntax-error #f "arity mismatch" stx))
+           (syntax-property (syntax-property stx 'layer current-layer-id)
+                            'stamp (cons #f #f)))]))
       
     (syntax-case stx (ref aggregate timeline assert log same?)
-      [(ref src-id)
-       (let* ([id (syntax->datum #'src-id)]
-              [exprs (hash-ref src-table id #f)])
-         (cond
-           [exprs 
-            (map interpret-src-expr exprs)]
-           [else
-            (let iterate ([lst import-table])
-              (when (null? lst)
-                (raise-syntax-error 'refer-to-unbound-variable 
-                                    (format "id = ~v" id)
-                                    stx))
-              (if (member id (import-struct-exported (car lst)))
-                  (let ([found-expr (hash-ref (env-src-table (hash-ref global-env (import-struct-layer-id (car lst)))) id)])
-                    (map interpret-src-expr found-expr))
-                  (iterate (cdr lst))))]))]
+      [(ref src-id) (process-ref stx)]
       
       [(log v)
        (attach-stx-property stx #'v)]
       
-      [(log v1 v2 ...)
-       (begin
-         (unless (equal? (length (regexp-match* "~a" (format "~a" (syntax->datum #'v1)))) (length (syntax->list #'(v2 ...))))
-           (raise-syntax-error #f "arity mismatch" stx))
-         (syntax-property (syntax-property stx 'layer current-layer-id)
-                          'stamp (cons #f #f)))]
+      [(log v1 v2 ...) (process-log stx)]
       
       [(aggregate) 
        (raise-syntax-error #f "invalid-medic-expression" stx)]
@@ -313,12 +351,7 @@
       [(assert cond)
        (attach-stx-property stx #'cond)]
       
-      [(define (var) expr ...)
-       (quasisyntax/loc stx
-         (define (var)
-           #,@(map interpret-src-expr (syntax->list #'(expr ...)))))]
-      
-      [else (syntax-property stx 'layer current-layer-id)]))
+      [else (traverse stx)]))
   
   (syntax-case stx (begin layer)
     [(begin (layer layer-id layer-expr ...) ...)
@@ -343,3 +376,4 @@
 (define on-entry #f)
 (define on-exit #f)
 (define at #f)
+(define function-name #f)

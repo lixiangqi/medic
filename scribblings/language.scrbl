@@ -8,7 +8,7 @@
                      medic/trace
                      (only-in medic/main 
                               layer export import def in with-behavior ref each-function
-                              on-entry on-exit at)))
+                              on-entry on-exit at function-name)))
 
 @title{A Metaprogramming Language}
 @defmodulelang[medic]
@@ -118,7 +118,11 @@ use @racket[[renamed ret id]] explicitly to rename the symbol of the return valu
 
 See @secref["log"] for more information.}
 
-
+@defthing[function-name (or/c #f string?)]{
+Returns the function name for the current scope of evaluation of @litchar["@"]@racket[funtion-name]. The 
+debugging primitive @litchar["@"]@racket[funtion-name] exposes the run-time function scope, which is only 
+available to debuggers, to programmers.
+}
 @defform[[each-function insert-expr insert-expr ...]]{
 Adds a sequence of @racket[insert-expr] to every function defined in the module.}
 

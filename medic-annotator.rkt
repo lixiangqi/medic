@@ -208,8 +208,7 @@
                           color))]))
       
       (define (get-syntax-property e key)
-        (or (syntax-property e key)
-            (syntax-property (cadr (syntax->list e)) key)))
+        (syntax-property (cadr (syntax->list e)) key))
           
       (define annotated
         (rearm

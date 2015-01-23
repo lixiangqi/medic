@@ -51,29 +51,38 @@
     ; convert-stx gives library identifier the proper racket bindings
     (define (convert-stx stx)
       
-      (define (handle-single s)
-        (define res (convert (strip-context s) (syntax-property s 'layer) (syntax-property s 'stamp)))
-        (datum->syntax #f res s s))
+      (define (attach-prop s layer-prop stamp-prop)
+        (syntax-property (syntax-property s 'layer layer-prop) 'stamp stamp-prop))
       
-      (define (convert s layer-prop stamp-prop)
+      (define (convert-aux s)
+        (map (lambda (e)
+               (define res (attach-prop (strip-context e) 
+                                        (syntax-property s 'layer)
+                                        (syntax-property s 'stamp)))
+               (datum->syntax #f res s s))
+             (syntax->list s)))
+      
+      (define (traverse s)
         (cond
-          [(identifier? s)
-           (syntax-property (syntax-property s 'layer layer-prop) 'stamp stamp-prop)]
           [(syntax? s)
-           (convert (syntax-e s) layer-prop stamp-prop)]
+           (syntax-case s (log aggregate node edge timeline assert same?)
+             [(log . v) (convert-aux s)]
+             [(aggregate v ...) (convert-aux s)]
+             [(node . v) (convert-aux s)]
+             [(edge . v) (convert-aux s)]
+             [(timeline v) (convert-aux s)]
+             [(assert v) (convert-aux s)]
+             [(same? v) (convert-aux s)]
+             [else
+              (traverse (syntax-e s))])]
           [(pair? s)
-           (let* ([first (car s)]
-                  [second (cdr s)]
-                  [layer (and (syntax? first) (syntax-property first 'layer))]
-                  [stamp (and (syntax? first) (syntax-property first 'stamp))])
-             (if (and (null? second) (syntax? first))
-                 (cons (convert (car s) layer stamp) (convert (cdr s) layer stamp))
-                 (cons (convert (car s) layer-prop stamp-prop) (convert (cdr s) layer-prop stamp-prop))))]
+           (cons (traverse (car s)) (traverse (cdr s)))]
           [else s]))
       
-      (if (list? stx)
-          #`(begin #,@(map handle-single stx))
-          (handle-single stx)))
+      (define res (traverse stx))
+      (if (syntax? stx)
+          (datum->syntax #f res stx stx)
+          (datum->syntax #f res)))
     
     ; when local? is #t, match at-pattern expression within function scope
     (define (match-at-table old-stx new-stx local? [bounds '()] [before-bounds '()] [after-bounds '()] [id #f])
@@ -303,9 +312,11 @@
                                         (arg-list
                                          #,@(map (lambda (e) (wrap-context e bindings id))
                                                  entry-exprs)
-                                         #,@new-bodies
-                                         #,@(map (lambda (e) (wrap-context e bindings id))
-                                                 exit-exprs))))
+                                         (begin0
+                                           (begin
+                                             #,@new-bodies)
+                                           #,@(map (lambda (e) (wrap-context e bindings id))
+                                                   exit-exprs)))))
                (if (null? exit-exprs)
                    with-entry-body
                    (if internal-let?

@@ -53,9 +53,12 @@
       (send log-text unhighlight-all-text))
     
     (define (on-step slider event)
-      (define cur (send slider get-value))
-      (send slider-message set-label (string-append prefix (format "~a/~a" cur max-length)))
-      (send timeline-canvas scrutinize cur))
+      (cond
+        [(null? timeline-data) (void)]
+        [else
+         (define cur (send slider get-value))
+         (send slider-message set-label (string-append prefix (format "~a/~a" cur max-length)))
+         (send timeline-canvas scrutinize cur)]))
     
     (define/private (initialize-layer-frame)
       (set! layer-frame (new frame% 

@@ -5,7 +5,10 @@
           scriblib/figure
           (for-label (except-in racket log export import remove)
                      racket/contract/base
-                     medic/trace))
+                     medic/trace
+                     (only-in medic/main 
+                              layer export import def in with-behavior ref each-function
+                              on-entry on-exit at)))
 
 @title[#:style '(toc)]{Medic by Example}
 
@@ -220,7 +223,7 @@ Multiple functions involved in the debugging activity.
          [each-function [on-entry (log "function ~a entered" @"@"function-name)]])
        (in #:module "src5.rkt"
            [on-entry (ref init-defs)]
-           [(at (with-start "(define")) [on-entry (ref inc-id-count)]]
+           [(at (define _ _)) [on-entry (ref inc-id-count)]]
            (ref log-function-entry)
            [on-exit (ref display-count)]))
 
