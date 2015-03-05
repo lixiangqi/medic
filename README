@@ -1,0 +1,5 @@
+This library contains a debugging tool, Medic, to provide an enhanced debugging experience with printf 
+debugging. To get started, you can install the Medic package and build the documentation for a user
+manual (refer to http://docs.racket-lang.org/pkg/index.html for more details). The demos directory 
+contains executable examples used in the documentation.  
+

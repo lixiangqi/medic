@@ -56,10 +56,9 @@
       
       (define (convert-aux s)
         (map (lambda (e)
-               (define res (attach-prop (strip-context e) 
-                                        (syntax-property s 'layer)
-                                        (syntax-property s 'stamp)))
-               (datum->syntax #f res s s))
+               (attach-prop (strip-context e) 
+                            (syntax-property s 'layer)
+                            (syntax-property s 'stamp)))
              (syntax->list s)))
       
       (define (traverse s)

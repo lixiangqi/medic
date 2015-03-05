@@ -304,7 +304,7 @@
            [(aggregate) 
             (raise-syntax-error #f "invalid-medic-expression" s)]
            [(aggregate v ...) 
-            (attach-stx-property s(syntax->list #'(v ...)))]
+            (attach-stx-property s (syntax->list #'(v ...)))]
            [(same? id) (not (identifier? #'id))
             (raise-syntax-error #f "invalid-medic-expression" s)]
            [(timeline id)
