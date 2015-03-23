@@ -47,21 +47,20 @@
   (define (valid-string? s)
     (and s (not (string=? (string-normalize-spaces s) "")) s))
   
-  (when (and (object? from) (object? to))
-    (define bi-directed? (hash-has-key? raw-edges (cons to from)))
-    (cond
-      [bi-directed?
-       (let* ([v (hash-ref raw-edges (cons to from))]
-              [e (first v)]
-              [f (second v)]
-              [t (third v)])
-         (when (and (valid-string? e) (valid-string? edge-label))
-           (set! e #f))
-         (hash-set! raw-edges (cons to from) (list e f t bi-directed? (fifth v)))
-         (hash-set! raw-edges (cons from to) (list edge-label from-label to-label bi-directed? color)))]
-      [else
-       (hash-set! raw-edges (cons from to) (list edge-label from-label to-label bi-directed? color))])
-    (set! show-browser? #t)))
+  (define bi-directed? (hash-has-key? raw-edges (cons to from)))
+  (cond
+    [bi-directed?
+     (let* ([v (hash-ref raw-edges (cons to from))]
+            [e (first v)]
+            [f (second v)]
+            [t (third v)])
+       (when (and (valid-string? e) (valid-string? edge-label))
+         (set! e #f))
+       (hash-set! raw-edges (cons to from) (list e f t bi-directed? (fifth v)))
+       (hash-set! raw-edges (cons from to) (list edge-label from-label to-label bi-directed? color)))]
+    [else
+     (hash-set! raw-edges (cons from to) (list edge-label from-label to-label bi-directed? color))])
+  (set! show-browser? #t))
 
 (define (check-equal? v1 v2)
   (cond
@@ -103,7 +102,8 @@
     [(hash? d) 
      (for-each (lambda (k)
                  (hash-set! d k (convert-value (hash-ref d k))))
-               (hash-keys d))]
+               (hash-keys d))
+     (hash-copy d)]
     [else d]))
 
 (define (record-changed id-stx label val)

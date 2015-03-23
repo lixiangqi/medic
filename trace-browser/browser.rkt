@@ -134,8 +134,8 @@
     (define graph-pb (new graph-pasteboard%
                           [raw-nodes (car (get-raw-graph))]
                           [raw-edges (cdr (get-raw-graph))]
-                          [width graph-width]
-                          [height graph-height]))
+                          [width (+ graph-width 300)]
+                          [height (+ graph-height 300)]))
     (new editor-canvas%
          [parent graph-panel]
          [editor graph-pb])
