@@ -13,7 +13,7 @@
          [each-function [on-entry (log "function ~a entered" @function-name)]])
        (in #:module "src5.rkt"
            [on-entry (ref init-defs)]
-           [(at (define _ _)) [on-entry (ref inc-id-count)]]
+           [at (define _ _) [on-entry (ref inc-id-count)]]
            (ref log-function-entry)
            [on-exit (ref display-count)]))
 

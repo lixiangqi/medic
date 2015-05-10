@@ -4,7 +4,7 @@
 (require "medic-structs.rkt")
 
 (provide (rename-out [module-begin #%module-begin])
-         log
+         log begin
          #%app #%top require #%datum
          #%top-interaction
          layer export import def in with-behavior ref each-function
@@ -160,7 +160,7 @@
       [(with-behavior f @ t)
        (add-template #'f #'t #f)]
       
-      [(with-behavior f @ t (renamed ret r))
+      [(with-behavior f @ t #:renamed ret r)
        (add-template #'f #'t (format "~a" (syntax->datum #'r)))]
       
       [[each-function to-insert ...]
@@ -195,27 +195,34 @@
        (interpret-at-expr stx fn (map (lambda (i) (format "~a" i)) scope-ids))]))
   
   (define (interpret-at-expr stx fn scope)
+    (define (interpret-seq s)
+      (syntax-case s (begin)
+        [(begin expr ...)
+         (syntax->list #'(expr ...))]
+        [else
+         (list s)]))
+    
     (syntax-case stx (at)
-      [[(at location-expr [#:before expr1 ...] [#:after expr2 ...]) border-expr ...]
-       (let ([before-exp (syntax->list #'(expr1 ...))]
-             [after-exp (syntax->list #'(expr2 ...))])
+      [[at location-expr #:before expr1 #:after expr2 border-expr ...]
+       (let ([before-exp (interpret-seq #'expr1)]
+             [after-exp (interpret-seq #'expr2)])
          (for-each (lambda (e) 
                      (interpret-border-expr e fn scope #'location-expr before-exp after-exp stx)) 
                    (syntax->list #'(border-expr ...))))]
       
-      [[(at location-expr [#:before expr ...]) border-expr ...]
-       (let ([before-exp (syntax->list #'(expr ...))])
+      [[at location-expr #:before expr border-expr ...]
+       (let ([before-exp (interpret-seq #'expr)])
          (for-each (lambda (e) 
                      (interpret-border-expr e fn scope #'location-expr before-exp '() stx)) 
                    (syntax->list #'(border-expr ...))))]
-      
-      [[(at location-expr [#:after expr ...]) border-expr ...]
-       (let ([after-exp (syntax->list #'(expr ...))])
+
+      [[at location-expr #:after expr border-expr ...]
+       (let ([after-exp (interpret-seq #'expr)])
          (for-each (lambda (e) 
                      (interpret-border-expr e fn scope #'location-expr '() after-exp stx)) 
                    (syntax->list #'(border-expr ...))))]
-      
-      [[(at location-expr) border-expr ...]
+
+      [[at location-expr border-expr ...]
        (for-each (lambda (e) 
                    (interpret-border-expr e fn scope #'location-expr '() '() stx)) 
                  (syntax->list #'(border-expr ...)))]

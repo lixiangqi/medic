@@ -3,14 +3,18 @@
 (provide add-log
          add-node
          add-edge
+         delete-node
+         delete-edge
          record-aggregate
          record-timeline
          record-changed
+         record-start-time
          get-log-data
          get-raw-graph
          get-aggregate-data
          get-timeline-data
          get-changed-data
+         get-end-time
          browser-visible?
          contain-changed-data?)
 
@@ -20,6 +24,8 @@
 (define raw-nodes '())
 (define timeline-table (make-hash))
 (define timeline-sequence null)
+(define start-time #f)
+(define end-time #f)
 (define aggre-table (make-hash))
 (define aggre-sequence null)
 (define identifiers null)
@@ -61,6 +67,18 @@
     [else
      (hash-set! raw-edges (cons from to) (list edge-label from-label to-label bi-directed? color))])
   (set! show-browser? #t))
+
+(define (delete-node n) 
+  (when (hash? raw-nodes)
+    (hash-remove! raw-nodes n))
+  (when (hash? raw-edges)
+    (for ([edge (hash-keys raw-edges)])
+      (when (or (equal? (car edge) n) (equal? (cdr edge) n))
+        (hash-remove! raw-edges edge)))))
+
+(define (delete-edge from to) 
+  (when (hash? raw-edges)
+    (hash-remove! raw-edges (cons from to))))
 
 (define (check-equal? v1 v2)
   (cond
@@ -106,7 +124,8 @@
      (hash-copy d)]
     [else d]))
 
-(define (record-changed id-stx label val)
+(define (record-changed id-stx label val cur-time)
+  (set! end-time (truncate-time (- cur-time start-time)))
   (set! show-browser? #t)
   (define copy (convert-value val))
   (define label-str (format "~a" label))
@@ -117,18 +136,31 @@
             (let* ([found (hash-ref changed-table i)]
                    [last-val (second (last found))]
                    [is-same? (check-same? copy last-val)])
-              (hash-set! changed-table i (cons (list label-str copy is-same?) found)))
+              (hash-set! changed-table i (cons (list label-str copy is-same? end-time) found)))
             (loop (add1 i)))
         (begin
           (set! identifiers (append identifiers (list id-stx)))
-          (hash-set! changed-table i (cons (list label-str copy #t) '()))))))
+          (hash-set! changed-table i (cons (list label-str copy #t end-time) '()))))))
 
-(define (record-timeline key label value boolean?)
+(define (truncate-time val)
+  (define (round-f a)
+    (define ceil (exact-ceiling a))
+    (define diff (- ceil a))
+    (if (> diff 0.5)
+        (exact-floor a)
+        ceil))
+  (/ (round-f (* val 100)) 100.0))
+
+(define (record-start-time s) (set! start-time s))
+(define (get-end-time) end-time)
+
+(define (record-timeline key label value boolean? cur-time)
+  (set! end-time (truncate-time (- cur-time start-time)))
   (set! show-browser? #t)
   (define v (hash-ref timeline-table key '()))
   (when (null? v)
     (set! timeline-sequence (cons key timeline-sequence)))
-  (hash-set! timeline-table key (cons (list label value boolean?) v)))
+  (hash-set! timeline-table key (cons (list label value boolean? end-time) v)))
 
 (define (get-raw-graph) (cons (reverse raw-nodes) raw-edges))
 
@@ -137,8 +169,9 @@
                  (let* ([val (reverse (hash-ref timeline-table i))]
                         [label (first (first val))]
                         [values (map second val)]
-                        [boolean? (third (first val))])
-                   (list label boolean? values))))
+                        [boolean? (third (first val))]
+                        [time (map fourth val)])
+                   (list label boolean? values time))))
   (set! timeline-sequence null)
   (set! timeline-table #f)
   data)
@@ -153,8 +186,9 @@
   (define data (for/list ([i (in-range (length identifiers))])
                  (let* ([val (reverse (hash-ref changed-table i))]
                         [label (first (first val))]
-                        [values (map third val)])
-                   (list label #t values))))
+                        [values (map third val)]
+                        [time (map fourth val)])
+                   (list label #t values time))))
   (set! identifiers null)
   (set! changed-table #f)
   data)

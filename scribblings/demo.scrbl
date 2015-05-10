@@ -70,11 +70,11 @@ Basic module-level and function-level insertion of some debugging code.
             (log "module exit: expect y = 2")
             (log y)]
            ; module-level at-expr
-           [(at (define n 9)) [on-exit (log "module at: expect n = 9")
-                                       (log n)]]
+           [at (define n 9) [on-exit (log "module at: expect n = 9")
+                                     (log n)]]
            ; function-level at-expr and border-expr
            [(f) 
-            [(at (* x (sub1 _))) [on-entry (log "else branch: expect n = 4") (log n)]]
+            [at (* x (sub1 _)) [on-entry (log "else branch: expect n = 4") (log n)]]
             [on-entry (define y 30)
                       (log "function entry: expect y = 30")
                       (log x)
@@ -113,22 +113,22 @@ The @racket[at-expr] pattern matching with @racket[before-expr] and @racket[afte
 (layer layer1 
        (in #:module "src2.rkt"
            ; match two instances of (inc-counter)
-           [(at (inc-counter)) [on-entry (log "[1]in ~a: inc-counter" @"@"function-name)]]
+           [at (inc-counter) [on-entry (log "[1]in ~a: inc-counter" @"@"function-name)]]
            
            ; match two instances of (+ x 1)
-           [(at (+ x 1) [#:before (inc-counter)]) [on-entry (log "[2]in ~a: (+ x 1)" @"@"function-name)]]
+           [at (+ x 1) #:before (inc-counter) [on-entry (log "[2]in ~a: (+ x 1)" @"@"function-name)]]
            
            ; only match (+ x 1) in g function
-           [(at (+ x 1) [#:before (define x (inc 4))
-                                  _])
-            [on-entry (log "[3]in ~a: (+ x 1)" @"@"function-name)]]
-           [(g) [(at (+ x 1)) [on-entry (log "[4]in ~a: (+ x 1)" @"@"function-name)]]]
+           [at (+ x 1) #:before (begin (define x (inc 4)) _)
+               [on-entry (log "[3]in ~a: (+ x 1)" @"@"function-name)]]
+           [(g) [at (+ x 1) [on-entry (log "[4]in ~a: (+ x 1)" @"@"function-name)]]]
            
            ; only match (inc-counter) in function g
-           [(at (inc-counter) [#:before (define x (inc 4))] [#:after (+ x 1)])
-            (on-entry (log "[5]in ~a: (inc-counter)" @"@"function-name))]
-           [(at (inc-counter) [#:before (define x (inc _))] [#:after (+ x 1)])
-            (on-entry (log "[6]in ~a: (inc-counter)" @"@"function-name))]))
+           [at (inc-counter) #:before (define x (inc 4)) #:after (+ x 1)
+               (on-entry (log "[5]in ~a: (inc-counter)" @"@"function-name))]
+           [at (inc-counter) #:before (define x (inc _)) #:after (+ x 1)
+               (on-entry (log "[6]in ~a: (inc-counter)" @"@"function-name))]))
+
 }
 @section{Demo 3: multiple functions scope}
 Multiple functions involved in the debugging activity.
@@ -223,7 +223,7 @@ Multiple functions involved in the debugging activity.
          [each-function [on-entry (log "function ~a entered" @"@"function-name)]])
        (in #:module "src5.rkt"
            [on-entry (ref init-defs)]
-           [(at (define _ _)) [on-entry (ref inc-id-count)]]
+           [at (define _ _) [on-entry (ref inc-id-count)]]
            (ref log-function-entry)
            [on-exit (ref display-count)]))
 
@@ -233,4 +233,5 @@ Multiple functions involved in the debugging activity.
            (ref log-function-entry))
        (in #:module "src5.rkt"
            [on-exit (log t)]))
+
 }

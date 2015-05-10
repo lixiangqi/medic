@@ -10,6 +10,7 @@
          "aggregate-editor.rkt"
          "graph-pasteboard.rkt"
          "timeline-canvas.rkt"
+         "time-frame.rkt"
          "../trace-util.rkt")
 
 (provide make-trace-browser)
@@ -37,6 +38,13 @@
   (class object%
     (init parent)
     (super-new)
+    
+    (define timeline-data 
+      (if (contain-changed-data?)
+          (append (get-timeline-data) (get-changed-data))
+          (get-timeline-data)))
+    
+    (define time-frame #f)
     
     (define/private (on-check-box-value-change c)
       (define label (send c get-label))
@@ -89,6 +97,12 @@
       (unless layer-frame (initialize-layer-frame))
       (unless (send layer-frame is-shown?)
         (send layer-frame show #t)))
+    
+    (define/private (popup-time-viewer)
+      (unless time-frame 
+        (set! time-frame (new time-frame% [data timeline-data] [max-time (get-end-time)])))
+      (unless (send time-frame is-shown?)
+        (send time-frame show #t)))
     
     ;; Main Layout
     (define split-panel (new panel:horizontal-dragable% [parent parent]))
@@ -148,18 +162,12 @@
          [editor aggre-text])
     
     ;; Timeline
-    (define timeline-data 
-      (if (contain-changed-data?)
-          (append (get-timeline-data) (get-changed-data))
-          (get-timeline-data)))
-
     (define max-length 0)
     (unless (null? timeline-data)
       (set! max-length (apply max (map length (map third timeline-data)))))
     (define slider-panel (new horizontal-panel% 
                               [parent timeline-panel] 
-                              [stretchable-height #f]
-                              [style '(border)]))
+                              [stretchable-height #f]))
     (define prefix "Timeline\n")
     (define slider-message (new message% 
                                 [label (string-append prefix (format "~a/~a" 0 max-length))] 
@@ -170,6 +178,13 @@
                         [max-value max-length] 
                         [parent slider-panel]
                         [callback on-step]))
+    (new switchable-button%
+         [label "Time Viewer"]
+         [bitmap medic-bitmap]
+         [min-width-includes-label? #t]
+         [vertical-tight? #t]
+         [parent slider-panel]
+         [callback (lambda (b) (popup-time-viewer))])
     
     (define timeline-canvas #f)
     (if (null? timeline-data)

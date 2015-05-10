@@ -19,6 +19,7 @@
        (cons #'var (arglist-bindings #'others))]))
   
   (define (annotate-stx stx template)
+    (printf "annotate-stx entered!! ~a\n" (current-inexact-milliseconds))
     (define top-level-ids '())
     (define args-table (make-hash))
     
@@ -44,10 +45,16 @@
                                         #`(plain-module-begin
                                            (#%require racket/base
                                                       mzlib/string)
+                                           (#%plain-app #,record-start-time (current-inexact-milliseconds))
+                                           (printf "run-start:~a\n" (current-inexact-milliseconds))
                                            (define old (current-inspector))
                                            (current-inspector (make-inspector old))
                                            #,@(map (lambda (e) (module-level-expr-iterator e))
-                                                   (syntax->list #'module-level-exprs)))))))])]))
+                                                   (syntax->list #'module-level-exprs))
+                                           (printf "run-end:~a\n" (current-inexact-milliseconds))
+
+
+                                           )))))])]))
     
     (define (module-level-expr-iterator stx)
       (kernel:kernel-syntax-case
@@ -214,7 +221,7 @@
         (rearm
          expr
          (kernel:kernel-syntax-case*
-          (disarm expr) #f (log aggregate node edge timeline assert same?)
+          (disarm expr) #f (log aggregate node edge remove-node remove-edge timeline assert same?)
           [var-stx (identifier? (syntax var-stx)) 
            expr]
           
@@ -272,24 +279,31 @@
           [(#%plain-app edge . args)
            (edge-expression-annotator #'args)]
           
+          [(#%plain-app remove-node n)
+           (quasisyntax/loc expr
+             (#%plain-app #,delete-node n))]
+          [(#%plain-app remove-edge from to)
+           (quasisyntax/loc expr
+             (#%plain-app #,delete-edge from to))]
+          
           [(#%plain-app timeline id)
            (let* ([stamp (get-syntax-property expr 'stamp)]
                   [timeline-id (car stamp)]
                   [label (cdr stamp)])
              (quasisyntax/loc expr
-               (#%plain-app #,record-timeline #,timeline-id #,label id #f)))]
+               (#%plain-app #,record-timeline #,timeline-id #,label id #f (current-inexact-milliseconds))))]
           
           [(#%plain-app assert cond)
            (let* ([stamp-id (get-syntax-property expr 'stamp)]
                   [id (car stamp-id)]
                   [label (cdr stamp-id)])
              (quasisyntax/loc expr
-               (#%plain-app #,record-timeline #,id #,label cond #t)))]
+               (#%plain-app #,record-timeline #,id #,label cond #t (current-inexact-milliseconds))))]
           
           [(#%plain-app same? id)
            (quasisyntax/loc expr
               (parameterize ([current-inspector old])
-                (#%plain-app #,record-changed #'id 'id id)))]
+                (#%plain-app #,record-changed #'id 'id id (current-inexact-milliseconds))))]
                         
           [(#%plain-app . exprs)
            (let ([subexprs (map (lambda (expr) 
@@ -304,8 +318,12 @@
           [else (error 'expr-syntax-object-iterator "unknown expr: ~a"
                        (syntax->datum expr))])))
       annotated)
-    
-    (top-level-annotate stx))
+
+    (begin0
+    (top-level-annotate stx)
+    (printf "annotate-stx entered!! ~a\n" (current-inexact-milliseconds)))
+
+    )
   
   (define (disarm stx) (syntax-disarm stx code-insp))
   (define (rearm old new) (syntax-rearm new old))

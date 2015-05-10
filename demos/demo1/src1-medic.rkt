@@ -10,11 +10,11 @@
             (log "module exit: expect y = 2")
             (log y)]
            ; module-level at-expr
-           [(at (define n 9)) [on-exit (log "module at: expect n = 9")
-                                       (log n)]]
+           [at (define n 9) [on-exit (log "module at: expect n = 9")
+                                     (log n)]]
            ; function-level at-expr and border-expr
            [(f) 
-            [(at (* x (sub1 _))) [on-entry (log "else branch: expect n = 4") (log n)]]
+            [at (* x (sub1 _)) [on-entry (log "else branch: expect n = 4") (log n)]]
             [on-entry (define y 30)
                       (log "function entry: expect y = 30")
                       (log x)

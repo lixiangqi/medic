@@ -25,33 +25,31 @@ Here is the grammar for the Medic metaprogramming language:
 @(racketgrammar* 
   #:literals (layer export import def in with-behavior ref each-function
               on-entry on-exit at)
-  [top-level-form (layer-form layer-form ...)]        
-  [layer-form (layer layer-id layer-expr ...)
-              (layer layer-id #:enable flag layer-expr ...)]
-  [layer-expr (export id id ...)
-              (import layer-id layer-id ...)
-              debug-expr]
-  [debug-expr (def debug-src-id #:src source-expr source-expr ...)
-              (def debug-id #:debug match-expr match-expr ...)
-              (in #:module module-path match-expr match-expr ...)]
-  [match-expr (with-behavior f template)
-              (with-behavior f template [renamed ret id])
+  [top-level-form layer-def...]        
+  [layer-def (layer layer-id layer-form ...)
+             (layer layer-id #:enable flag layer-form ...)]
+  [layer-form (export id ...)
+              (import layer-id ...)
+              debug-def
+              (in #:module module-name match-form ...)]
+  [debug-def (def debug-src-id #:src source-expr ...)
+             (def debug-id #:debug match-form ...)]
+  [match-form (with-behavior f template)
+              (with-behavior f template #:renamed ret id)
               (ref debug-id)
-              insert-expr
-              [each-function insert-expr insert-expr ...]
-              [(f f ...) insert-expr insert-expr ...]]
-  [insert-expr border-expr
-               at-expr]
-  [border-expr [on-entry source-expr source-expr ...]
-               [on-exit source-expr source-expr ...]]
-  [at-expr [(at location-expr) border-expr border-expr ...]
-           [(at location-expr before-expr) border-expr border-expr ...]
-           [(at location-expr after-expr) border-expr border-expr ...]
-           [(at location-expr before-expr after-expr) border-expr border-expr ...]]
-  [location-expr target-language-expression
+              insert-form
+              [each-function insert-form ...]
+              [(f ...) insert-form ...]]
+  [insert-form border-form
+               at-form]
+  [border-form [on-entry source-expr ...]
+               [on-exit source-expr ...]]
+  [at-form [at location-form border-form ...]
+           [at location-form #:before location-form border-form ...]
+           [at location-form #:after location-form border-form ...]
+           [at location-form #:before location-form #:after location-form border-form ...]]
+  [location-form target-language-expression
                  expression-pattern]
-  [before-expr [#:before location-expr location-expr ...]]
-  [after-expr [#:after location-expr location-expr ...]]
   [source-expr (ref debug-src-id)
                target-language-expression]
   [flag boolean]
@@ -61,23 +59,23 @@ Here is the grammar for the Medic metaprogramming language:
   [debug-src-id variable-not-otherwise-mentioned]
   [debug-id variable-not-otherwise-mentioned])
 
-@defform*[((layer layer-id layer-expr ...)
-           (layer layer-id #:enable flag layer-expr ...))]{
+@defform*[((layer layer-id layer-form ...)
+           (layer layer-id #:enable flag layer-form ...))]{
 Modularizes debugging code and facilitates organizing debugging traces into different units. 
 The @racket[#:enable] keyword permits enabling and disabling adding to the source code
-the debugging behaviors described within @racketvarfont{layer-expr}, while the debugging definitions
+the debugging behaviors described within @racketvarfont{layer-form}, while the debugging definitions
 within the layer are still available to other layers.  
 }
 
-@defform[(export id id ...)]{
+@defform[(export id ...)]{
 Declares exports of a layer where the @racketvarfont{id} is the identifier of an internal
 layer definition.}
 
-@defform[(import layer-id layer-id ...)]{
+@defform[(import layer-id ...)]{
 Declares imports of a layer where the @racketvarfont{layer-id} is some layer identifier.}
 
-@defform*[((def debug-src-id #:src source-expr source-expr ...)
-           (def debug-id #:debug match-expr match-expr ...))]{
+@defform*[((def debug-src-id #:src source-expr ...)
+           (def debug-id #:debug match-expr ...))]{
 Binds @racketvarfont{debug-src-id} to a sequence of source expressions following the
 @racket[#:src] keyword and @racketvarfont{debug-id} to a sequence of medic expressions
 following the @racket[#:debug] keyword.}
@@ -88,10 +86,10 @@ Accesses the corresponding source expressions or medic expressions bound by
 @racketvarfont{debug-src-id} or @racketvarfont{debug-id}.
 }
 
-@defform[(in #:module module-path match-expr match-expr ...)]{
-Specifies the module to apply debugging code. The @racketvarfont{module-path} 
+@defform[(in #:module module-name match-expr ...)]{
+Specifies the module to apply debugging code. The @racketvarfont{module-name} 
 can be three kinds of paths: a relative path, an absolute path, or a library path. 
-For example, the following are possible specifications for @racketvarfont{module-path}.
+For example, the following are possible specifications for @racketvarfont{module-name}.
 @racketblock[
 (code:comment "a relative path")
 (in #:module "src.rkt" ....)
@@ -102,18 +100,18 @@ For example, the following are possible specifications for @racketvarfont{module
 ]}
 
 @defform*[((with-behavior f template)
-           (with-behavior f template [renamed ret id]))]{
+           (with-behavior f template #:renamed ret id))]{
 Defines the logging behavior of the @racketvarfont{f} function call. The form of @racketvarfont{template}
 is @litchar["@"]@litchar["{"]@racketvarfont{text-body}@litchar["}"]. In @racketvarfont{text-body},
 @litchar["@"]@racket[expr] enables the evaluation of an expression @racket[expr] with access to functions'
 arguments and return value. A function's arguments can be accessed by @racket[par] where @racket[par] is the 
 parameter's name. By default, @racket[ret] reveals the return value of a function. To avoid 
 confusions of referring to some argument with @racket[ret] name rather than the default return value, 
-use @racket[[renamed ret id]] explicitly to rename the symbol of the return value. For example,
+use @racket[#:renamed ret id] explicitly to rename the symbol of the return value. For example,
 
 @codeblock{
 (with-behavior f @"@"@"{"f takes @"@"x and @"@"y and returns @"@"ret@"}")
-(with-behavior f @"@"@"{"f takes @"@"x and @"@"ret and returns @"@"ret1@"}" [renamed ret ret1])
+(with-behavior f @"@"@"{"f takes @"@"x and @"@"ret and returns @"@"ret1@"}" #:renamed ret ret1)
 }
 
 See @secref["log"] for more information.}
@@ -123,36 +121,36 @@ Returns the function name for the current scope of evaluation of @litchar["@"]@r
 debugging primitive @litchar["@"]@racket[funtion-name] exposes the run-time function scope, which is only 
 available to debuggers, to programmers.
 }
-@defform[[each-function insert-expr insert-expr ...]]{
-Adds a sequence of @racket[insert-expr] to every function defined in the module.}
+@defform[[each-function insert-form ...]]{
+Adds a sequence of @racket[insert-form]s to every function defined in the module.}
 
-@defform/none[[(f f ...) insert-expr insert-expr ...]]{
-Supports function-level matching where @tt{(@racketvarfont{f f} ...)} constrains the scope of 
-a sequence of @racket[insert-expr] to be within one or more functions. The fourth
-clause of the @racketvarfont{match-expr} non-terminal is module-level matching. }
+@defform/none[[(f ...) insert-form ...]]{
+Supports function-level matching where @tt{(@racketvarfont{f} ...)} constrains the scope of 
+a sequence of @racket[insert-form] to be within one or more functions. The fourth
+clause of the @racketvarfont{match-form} non-terminal is module-level matching. }
 
 @defform*[#:id at 
-          ([(at location-expr) border-expr border-expr ...]
-           [(at location-expr before-expr) border-expr border-expr ...]
-           [(at location-expr after-expr) border-expr border-expr ...]
-           [(at location-expr before-expr after-expr) border-expr border-expr ...])]{
-Supports expression-level matching of the target expression @racket[location-expr]. For Racket, @racket[location-expr]
+          ([at location-form border-form ...]
+           [at location-form #:before location-form border-form ...]
+           [at location-form #:after location-form border-form ...]
+           [at location-form #:before location-form #:after location-form border-form ...])]{
+Supports expression-level matching of the target expression @racket[location-form]. For Racket, @racket[location-form]
 can be any expression in the source program except internal definitions, such as the @racket[(define ....)] form inside a
 function or the @racket[(let ....)] local binding form.  To avoid the confusions of multiple matches of
-@racketvarfont{location-expr} in the target program, specification of @racketvarfont{before-expr} 
-and @racketvarfont{after-expr} can be employed to confine the lexical context of @racketvarfont{location-expr}.
-Expressions within @racketvarfont{location-expr}, @racketvarfont{before-expr} and @racketvarfont{after-expr} can be a legal
+@racketvarfont{location-form} in the target program, specification of @racket[#:before]
+and @racket[#:after] can be employed to confine the lexical context of @racketvarfont{location-form}.
+Expressions within @racketvarfont{location-form}, or after @racket[#:before] and @racket[#:after] can be a legal
 source expression or an expression pattern with @litchar["_"] wildcard character matching any legal expression. For 
 example,
 
 @codeblock{
-[(at (+ _ 1) [#:before (define x (inc 4))]) [on-entry (log x)]]
+[at (+ _ 1) #:before (define x (inc 4)) [on-entry (log x)]]
 }
 }
 
-@defform[[on-entry source-expr source-expr ...]]{
-Inserts a sequence of debugging code @racket[source-expr] before the target expression located by @racketvarfont{at-expr},
+@defform[[on-entry source-expr ...]]{
+Inserts a sequence of debugging code @racket[source-expr]s before the target expression located by @racketvarfont{at-form},
 or at the beginning of a function or module depending on the scope of matching.}
-@defform[[on-exit source-expr source-expr ...]]{
-Inserts a sequence of debugging code @racket[source-expr] after the target expression located by @racketvarfont{at-expr},
+@defform[[on-exit source-expr ...]]{
+Inserts a sequence of debugging code @racket[source-expr] after the target expression located by @racketvarfont{at-form},
 or at the end of a function or module depending on the scope of matching.}
