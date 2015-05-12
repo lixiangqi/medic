@@ -19,7 +19,6 @@
        (cons #'var (arglist-bindings #'others))]))
   
   (define (annotate-stx stx template)
-    (printf "annotate-stx entered!! ~a\n" (current-inexact-milliseconds))
     (define top-level-ids '())
     (define args-table (make-hash))
     
@@ -46,15 +45,10 @@
                                            (#%require racket/base
                                                       mzlib/string)
                                            (#%plain-app #,record-start-time (current-inexact-milliseconds))
-                                           (printf "run-start:~a\n" (current-inexact-milliseconds))
                                            (define old (current-inspector))
                                            (current-inspector (make-inspector old))
                                            #,@(map (lambda (e) (module-level-expr-iterator e))
-                                                   (syntax->list #'module-level-exprs))
-                                           (printf "run-end:~a\n" (current-inexact-milliseconds))
-
-
-                                           )))))])]))
+                                                   (syntax->list #'module-level-exprs)))))))])]))
     
     (define (module-level-expr-iterator stx)
       (kernel:kernel-syntax-case
@@ -318,12 +312,7 @@
           [else (error 'expr-syntax-object-iterator "unknown expr: ~a"
                        (syntax->datum expr))])))
       annotated)
-
-    (begin0
-    (top-level-annotate stx)
-    (printf "annotate-stx entered!! ~a\n" (current-inexact-milliseconds)))
-
-    )
+    (top-level-annotate stx))
   
   (define (disarm stx) (syntax-disarm stx code-insp))
   (define (rearm old new) (syntax-rearm new old))

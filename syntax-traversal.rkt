@@ -31,6 +31,9 @@
 
 (define res-pos '())
 
+(define before-match null)
+(define after-match null)
+
 (define (traverse s c expr before-exprs after-exprs r p)
   (cond
     [(syntax? s)
@@ -57,7 +60,8 @@
          [(after)
           (cond
             [(null? after-exprs)
-             (set! res-pos (cons p res-pos))]
+             (set! res-pos (cons p res-pos))
+             (traverse (cdr s) 'before expr before-match after-match #f #f)]
             [else
              (if (match? first-s (first after-exprs))
                  (traverse (cdr s) 'after expr before-exprs (rest after-exprs) 'after p)
@@ -70,6 +74,8 @@
 
 (define (search-pos s e before after)
   (set! res-pos '())
+  (set! before-match before)
+  (set! after-match after)
   (traverse s 'before e before after #f #f)
   res-pos)
 
@@ -90,21 +96,22 @@
          (inc-counter)
          (+ x 3)))))
 
-(search-pos s #'(inc-counter) (list #'(define x (inc 4))) null)
+(search-pos s #'(inc-counter) (list #'(define x (inc 4))) null) ; two matches
 
-(search-pos s #'(inc-counter) (list #'(define x (inc 4))) (list #'(+ x 1)))
+(search-pos s #'(inc-counter) (list #'(define x (inc 4))) (list #'(+ x 1))) ; one match
 
-(search-pos s #'(inc-counter) (list #'(define x (inc 4))) (list #'(+ x 2)))
+(search-pos s #'(inc-counter) (list #'(define x (inc 4))) (list #'(+ x 2))) ; no match
 
-(search-pos s #'(inc-counter) (list #'(define x (inc 4))) (list #'(+ x 1) #'(+ y 3)))
+(search-pos s #'(inc-counter) (list #'(define x (inc 4))) (list #'(+ x 1) #'(+ y 3))) ; no match
 
-(search-pos s #'(inc-counter2) (list #'(define x (inc 4))) (list #'(+ x 1)))
+(search-pos s #'(inc-counter2) (list #'(define x (inc 4))) (list #'(+ x 1))) ; no match
 
-(search-pos s #'(inc-counter) null null)
+(search-pos s #'(inc-counter) null null) ; 3 matches
 
-(search-pos s #'(inc-counter) (list #'(define x 3)) null)
+(search-pos s #'(inc-counter) (list #'(define x 3)) null) ; no match
 
-(search-pos s #'(inc-counter) (list #'(define x (inc 4)) #'(+ x 1)) null)
+(search-pos s #'(inc-counter) (list #'(define x (inc 4)) #'(+ x 1)) null) ;no match
 
-(search-pos s #'(inc-counter) null (list #'(+ x 1)))
+(search-pos s #'(inc-counter) null (list #'(+ x 1))) ; one match
+
 |#
