@@ -6,7 +6,8 @@
            (for-syntax scheme/base)
            (only-in mzscheme [apply plain-apply])
            syntax/strip-context
-           "medic-structs.rkt")
+           "medic-structs.rkt"
+           "trace-util.rkt")
   
   (provide insert-stx)
   
@@ -20,31 +21,197 @@
       [(var . others)
        (cons #'var (arglist-bindings #'others))]))
   
-  (define (wrap-context stx bindings function-id)
+  (define args-table (make-hash))
+  
+  (define template #f)
+  
+  (define (log-expression-annotator e label layer-id)
+    (define (substitute-val strs vals)
+      (define v (list->vector strs))
+      (for ([p vals])
+        (vector-set! v (car p) (cdr p)))
+      (vector->list v))
+
+    (define (fill-val str vals)
+      (if (null? vals)
+          str
+          (fill-val (string-replace str "~a" (car vals) #:all? #f) (cdr vals))))
+
+    (define (not-at-form? s)
+      (let* ([args (syntax->list s)]
+             [fe (syntax->datum (car args))]
+             [re (map syntax->datum (cdr args))])
+        (and (string? fe) (regexp-match "~a" fe)
+             (andmap (lambda (i) (not (string? i))) re))))
+    
+    (syntax-case e ()
+      [(id) (identifier? #'id)
+       (quasisyntax/loc e (#,add-log (format "~a = ~v" 'id id) '#,layer-id #f))]
+      [(app) (equal? (string-ref (format "~a" (syntax->datum #'app)) 0) #\()
+       (let* ([app-lst (syntax->list #'app)]
+              [fun (car app-lst)]
+              [args (cdr app-lst)]
+              [fun-name (format "~a" (syntax->datum fun))]
+              [fun-args (hash-ref args-table fun-name null)]
+              [v (hash-ref template fun-name #f)])
+         (cond
+           [(identifier? fun)
+            (if v
+                (let* ([template-str (car v)]
+                       [template-exprs (cadr v)]
+                       [ret (caddr v)]
+                       [template-ret (if ret ret "ret")])
+                  (quasisyntax/loc e
+                    (let* ([arg-values (list #,@args)] 
+                           [ret-value (format "~v" (apply #,fun arg-values))]
+                           [template-vals null]
+                           [str (list #,@template-str)])
+                      (parameterize ([current-namespace (make-base-namespace)])
+                        (for-each (lambda (a v)
+                                    (namespace-set-variable-value! (string->symbol a) v))
+                                  (list #,@fun-args) arg-values)
+                        (namespace-set-variable-value! (string->symbol #,template-ret) ret-value)
+                        (for ([p '#,template-exprs])
+                          (set! template-vals (cons (cons (car p) (format "~a" (eval-string (cdr p)))) template-vals))) 
+                        (set! str (apply string-append (#,substitute-val str template-vals)))
+                        (#,add-log str '#,layer-id #t)))))
+                (quasisyntax/loc e
+                  (#,add-log (format "~a = ~v" #,label app) '#,layer-id #f)))]
+           [else
+            (error 'log-expression-annotator "unknown expr: ~a"
+                   (syntax->datum e))]))]
+      
+      [(other-exp)
+       (quasisyntax/loc e (#,add-log (format "~v" other-exp) '#,layer-id #f))]
+      
+      [(v1 v2 ...) (not-at-form? e)
+       (quasisyntax/loc e
+         (#,add-log (#,fill-val v1 (map (lambda (i) (format "~a" i)) (list v2 ...))) '#,layer-id #f))]            
+      
+      [(v1 v2 ...)
+       (quasisyntax/loc e
+         (let ([str (apply string-append (map (lambda (i) (format "~a" i)) (cons v1 (list v2 ...))))])
+           (#,add-log str '#,layer-id #f)))]))
+  
+  (define (node-expression-annotator e)
+    (syntax-case e ()
+      [(n)
+       (quasisyntax/loc e
+         (#%plain-app #,add-node n "" #f))]
+      [(n node-label)
+       (quasisyntax/loc e
+         (#%plain-app #,add-node n (format "~a" node-label) #f))]
+      [(n node-label color)
+       (quasisyntax/loc e
+         (#%plain-app #,add-node n (format "~a" node-label) color))]))
+  
+  (define (edge-expression-annotator e)
+    (syntax-case e ()
+      [(from to)
+       (quasisyntax/loc e
+         (#%plain-app #,add-edge from to "" "" "" #f))]
+      [(from to edge-label)
+       (quasisyntax/loc e
+         (#%plain-app #,add-edge from to (format "~a" edge-label) "" "" #f))]
+      [(from to edge-label color)
+       (quasisyntax/loc e
+         (#%plain-app #,add-edge from to 
+                      (format "~a" edge-label)
+                      "" ""
+                      color))]
+      [(from to edge-label color from-label)
+       (quasisyntax/loc e
+         (#%plain-app #,add-edge from to 
+                      (format "~a" edge-label)
+                      (format "~a" from-label) ""
+                      color))]
+      [(from to edge-label color from-label to-label)
+       (quasisyntax/loc e
+         (#%plain-app #,add-edge from to 
+                      (format "~a" edge-label)
+                      (format "~a" from-label) (format "~a" to-label)
+                      color))]))
+  
+  (define (wrap-context s bindings function-id)
+    
     (define (lookup id)
       (findf (lambda (v)
                (equal? (syntax->datum id) (syntax->datum v)))
              bindings))
-    (cond
-      [(identifier? stx)
-       (if (and (syntax? stx) (equal? (syntax->datum stx) '@function-name))
-           (datum->syntax #f function-id)
-           (let ([bound (lookup stx)])
-             (if bound
-                 (datum->syntax bound (syntax->datum stx) stx stx)
-                 stx)))]
-      [(syntax? stx)
-       (wrap-context (syntax-e stx) bindings function-id)]
-      [(pair? stx)
-       (cons (wrap-context (car stx) bindings function-id)
-             (wrap-context (cdr stx) bindings function-id))]
-      [else stx]))
+    
+    (define (wrap-context-aux stx)
+      (cond
+        [(identifier? stx)
+         (if (and (syntax? stx) (equal? (syntax->datum stx) 'function-name))
+             (datum->syntax #f function-id)
+             (let ([bound (lookup stx)])
+               (if bound
+                   (datum->syntax bound (syntax->datum stx) stx stx)
+                   stx)))]
+        [(syntax? stx)
+         (let* ([res (wrap-context-aux (syntax-e stx))]
+                [op (if (pair? res) (car res) #f)]
+                [op-sym (and op (syntax? op) (syntax->datum op))])
+           (cond
+             [(not op) res]
+             [(equal? op-sym 'log)
+              (let ([label (cdr (syntax-property op 'stamp))])
+                (log-expression-annotator (datum->syntax #f (cdr res) op) label (format "~a" (syntax-property op 'layer))))]
+             [(equal? op-sym 'aggregate)
+              (let* ([stamp (syntax-property op 'stamp)]
+                     [id (car stamp)]
+                     [labels (cdr stamp)]
+                     [args (rest res)])
+                (quasisyntax/loc op
+                  (#,record-aggregate #,id (list #,@labels) (list #,@args))))]
+             [(equal? op-sym 'node)
+              (node-expression-annotator (datum->syntax #f (cdr res) op))]
+             [(equal? op-sym 'edge)
+              (edge-expression-annotator (datum->syntax #f (cdr res) op))]
+             [(equal? op-sym 'remove-node)
+              (let ([n (cadr res)])
+                (quasisyntax/loc stx
+                  (#%plain-app #,delete-node #,n)))]
+             [(equal? op-sym 'remove-edge)
+              (let ([from (cadr res)]
+                    [to (caddr res)])
+                (quasisyntax/loc stx
+                  (#%plain-app #,delete-edge #,from #,to)))]
+             [(equal? op-sym 'timeline)
+              (let* ([stamp (syntax-property op 'stamp)]
+                     [timeline-id (car stamp)]
+                     [label (cdr stamp)]
+                     [id (cadr res)])
+                (quasisyntax/loc stx
+                  (#%plain-app #,record-timeline #,timeline-id #,label #,id #f (current-inexact-milliseconds))))]
+             [(equal? op-sym 'assert)
+              (let* ([stamp-id (syntax-property op 'stamp)]
+                     [id (car stamp-id)]
+                     [label (cdr stamp-id)]
+                     [cond (cadr res)])
+                (quasisyntax/loc stx
+                  (#%plain-app #,record-timeline #,id #,label #,cond #t (current-inexact-milliseconds))))]
+             [(equal? op-sym 'same?)
+              (with-syntax ([id (cadr res)])
+                (quasisyntax/loc stx
+                  (parameterize ([current-inspector old])
+                    (#%plain-app #,record-changed #'id 'id id (current-inexact-milliseconds)))))]
+             [else res]))
+         ]
+        [(pair? stx)
+         (cons (wrap-context-aux (car stx))
+               (wrap-context-aux (cdr stx)))]
+        [else stx]))
+    (wrap-context-aux s)
+    )
   
-  (define (insert-stx stx insert-table at-table)
+  (define (insert-stx stx insert-table at-table t)
     (define top-level-ids '())
     (define let-exit '())
     (define internal-let? #f)
     (define later-removes '())
+    (set! template t)
+    (set! args-table (make-hash))
     (define (add-top-level-id var)
       (set! top-level-ids (append (list var) top-level-ids)))
     
@@ -172,8 +339,14 @@
                                        #,(rearm
                                           #'mb
                                           #`(plain-module-begin
+                                             (#%require racket/base
+                                                        mzlib/string)
+                                             (#%plain-app #,record-start-time (current-inexact-milliseconds))
+                                             (define old (current-inspector))
+                                             (current-inspector (make-inspector old))
                                              #,(datum->syntax #f '(#%require medic/trace))
-                                             #,@entry-exprs
+                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f))
+                                                  entry-exprs)
                                              #,@(map (lambda (e) (module-level-expr-iterator e))
                                                      (syntax->list #'module-level-exprs))))))]
                   [else
@@ -181,8 +354,14 @@
                                        #,(rearm
                                           #'mb
                                           #`(plain-module-begin
+                                             (#%require racket/base
+                                                        mzlib/string)
+                                             (#%plain-app #,record-start-time (current-inexact-milliseconds))
+                                             (define old (current-inspector))
+                                             (current-inspector (make-inspector old))
                                              #,(datum->syntax #f '(#%require medic/trace))
-                                             #,@entry-exprs
+                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f))
+                                                  entry-exprs)
                                              #,@(map (lambda (e) (module-level-expr-iterator e))
                                                      (syntax->list #'module-level-exprs))
                                              #,@(map (lambda (e) (wrap-context e top-level-ids #f))
@@ -285,9 +464,12 @@
          clause #f
          [(arg-list . bodies)
           (let* ([new-bound-vars (arglist-bindings #'arg-list)]
+                 [arg-strs (map (lambda (v) (format "~a" (syntax->datum v))) new-bound-vars)]
                  [all-bound-vars (append new-bound-vars bound-vars)]
                  [bindings (append all-bound-vars top-level-ids)]
                  [body-list (syntax->list #'bodies)])
+            (when (hash-has-key? template id)
+              (hash-set! args-table id arg-strs))
             (cond
               [(or (not id)
                    (and id (regexp-match "%$" id)))
@@ -304,23 +486,26 @@
                (define new-bodies (map (lambda (e) (expression-iterator e all-bound-vars id)) body-list))
                (define with-entry-body (quasisyntax/loc clause
                                          (arg-list
-                                          #,@(map (lambda (e) (wrap-context e bindings id))
+                                          #,@(map (lambda (e) 
+                                                    (wrap-context e bindings id))
                                                   entry-exprs)
                                           #,@new-bodies)))
-               (define with-exit-body (quasisyntax/loc clause
-                                        (arg-list
-                                         #,@(map (lambda (e) (wrap-context e bindings id))
-                                                 entry-exprs)
-                                         (begin0
-                                           (begin
-                                             #,@new-bodies)
-                                           #,@(map (lambda (e) (wrap-context e bindings id))
-                                                   exit-exprs)))))
+               (define with-exit-body 
+                 (lambda ()
+                   (quasisyntax/loc clause
+                     (arg-list
+                      #,@(map (lambda (e) (wrap-context e bindings id))
+                              entry-exprs)
+                      (begin0
+                        (begin
+                          #,@new-bodies)
+                        #,@(map (lambda (e) (wrap-context e bindings id))
+                                exit-exprs))))))
                (if (null? exit-exprs)
                    with-entry-body
                    (if internal-let?
                        with-entry-body
-                       with-exit-body))]))]))
+                       (with-exit-body)))]))]))
       
       (define new-stx
         (rearm

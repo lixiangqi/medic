@@ -31,7 +31,7 @@
                   (lloop c))))))
       (values p filename))))
 
-(define (eval/annotations initial-module annotate-module? annotator insert-tables at-tables templates)
+(define (eval/annotations initial-module annotate-module? insert-tables at-tables templates)
   (define ns (make-base-namespace))
   (namespace-attach-module (current-namespace) 'racket/class ns)
   (parameterize
@@ -43,7 +43,7 @@
                           [insert-table (hash-ref insert-tables fn-str '())]
                           [at-table (hash-ref at-tables fn-str '())]
                           [template (hash-ref templates fn-str '())])
-                     (load-module/annotate annotator fn m insert-table at-table template))]
+                     (load-module/annotate fn m insert-table at-table template))]
                   [else
                    (ocload/use-compiled fn m)])))]
        [current-namespace ns])
@@ -62,7 +62,7 @@
   new-at-table)
 
 ; fn: complete-path-string
-(define (load-module/annotate annotator fn m insert-table at-table template)
+(define (load-module/annotate fn m insert-table at-table template)
   (let-values ([(base _ __) (split-path fn)]
                [(in-port src) (build-input-port fn)])
     (dynamic-wind
@@ -77,14 +77,13 @@
             (let* ([stx (parameterize ([current-namespace (make-base-namespace)])
                           (read-syntax src in-port))]
                    [new-at-table (process-at-table stx at-table)])
-              (let* ([inserted (expand (insert-stx (check-module-form (expand stx) m fn) insert-table new-at-table))]
-                     [module-ized-exp (annotator (check-module-form inserted m fn) template)]
+              (let* ([inserted (insert-stx (check-module-form (expand stx) m fn) insert-table new-at-table template)]
                      [second (read in-port)])
                 (unless (eof-object? second)
                   (raise-syntax-error
                    'load-module/annotate
                    (format "expected only a `module' declaration for `~s', but found an extra expression" m)
                    second))
-                (eval-syntax module-ized-exp)))))))
+                (eval-syntax inserted)))))))
      
      (lambda () (close-input-port in-port)))))

@@ -1,7 +1,6 @@
 #lang racket
 
 (require "load-annotator.rkt"
-         "medic-annotator.rkt"
          "trace-browser/browser.rkt")
 
 (provide medic
@@ -62,5 +61,5 @@
                      (λ (e) 
                        (make-trace-browser fn)
                        (raise e))])
-      (eval/annotations mod annotate-module? annotate-stx medic-insert-table medic-at-table medic-template))
+      (eval/annotations mod annotate-module? medic-insert-table medic-at-table medic-template))
     (make-trace-browser fn)))

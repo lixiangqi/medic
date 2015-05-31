@@ -7,7 +7,7 @@
                      racket/contract/base
                      medic/trace
                      (only-in medic/main 
-                              layer export import def in with-behavior ref each-function
+                              layer export import define-source define-match in with-behavior each-function
                               on-entry on-exit at)))
 
 @title{Medic Debugger}
@@ -25,22 +25,23 @@ technique of inserting print-like expressions into the source program.
 @defmodule[medic/trace]
 
 @defproc*[([(log [datum any/c]) void?]
-           [(log [form string?] [v any/c] ...) void?])]{
+           [(log [form string?] [v any/c] ...) void?]
+           [(log [v any/c] ...) void?])]{
 Adds a log entry in the Log pane. For the latter @racket[log] form, the log entry is a string @racket[form] with @litchar{~a} replaced
 by the corresponding value among @racket[v]s. The number of @litchar{~a}s in @racket[form] must be
 the same as the number of @racket[v]s.} Examples are as follows:
 @codeblock{
 (log "Hello World")
-(log "function ~a entered" @"@"function-name)
+(log "x = ~a, y = ~a" x y)
 }
 
-@defproc[(node [v object?] [node-label any/c ""] [color (or/c string? #f) #f])
+@defproc[(node [v any/c] [node-label any/c ""] [color (or/c string? #f) #f])
          void?]{
 Adds a node to the Graph pane. The optional arguments @racket[node-label] and @racket[color] specify node
 properties. If @racket[node] is called multiple times for the same @racket[v], only one node corresponding
 to @racket[v] is shown in the Graph pane.
 }
-@defproc[(edge [from object?] [to object?] [edge-label any/c ""] [color (or/c string? #f) #f] [from-label any/c ""] [to-label any/c ""])
+@defproc[(edge [from any/c] [to any/c] [edge-label any/c ""] [color (or/c string? #f) #f] [from-label any/c ""] [to-label any/c ""])
          void?]{
 Generates an edge in the Graph pane connecting from @racket[from] to @racket[to].  
 The optional arguments @racket[edge-label], @racket[from-label], and @racket[to-label] set the label 
@@ -50,6 +51,15 @@ exists no node associated with @racket[from] or @racket[to], @racket[edge] creat
 first and then adds an edge. 
 }
 
+@defproc[(remove-node [v any/c])
+         void?]{
+Removes a node.
+}
+
+@defproc[(remove-edge [from any/c] [to any/c])
+         void?]{
+Removes an edge.
+}
 @defproc[(aggregate [v any/c] ...) void?]{
 Adds an aggregate entry in the Aggregate pane, which groups a sequence of @racket[v]s together.
 }

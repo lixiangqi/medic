@@ -7,12 +7,15 @@
          log begin
          #%app #%top require #%datum
          #%top-interaction
-         layer export import def in with-behavior ref each-function
+         layer export import define-source define-match 
+         in with-behavior each-function
          on-entry on-exit at function-name)
 
-
 (module reader syntax/module-reader
-  medic)
+  medic
+  #:read read
+  #:read-syntax read-syntax
+  (require scribble/reader))
 
 (define-syntax-rule (module-begin form ...)
   (#%module-begin 
@@ -48,7 +51,7 @@
   (define at-inserts (make-hash))
   
   ; template: map from complete path string to a hash table, which maps
-  ; function name (symbol) to (list function-template-string args return-value)
+  ; function name (string) to (list function-template-string args return-value)
   ; one function can only take one logging behavior in one debugging program
   (define template (make-hash))
   
@@ -87,16 +90,24 @@
     (reverse-hashtable at-inserts))
   
   (define (interpret-expr stx flag)
-    (syntax-case stx (def in)
-      [(def src-id #:src src-expr ...) (identifier? #'src-id)
+    (syntax-case stx (define-source define-match in)
+      [(define-source src-id src-expr) (identifier? #'src-id)
        (if (member (syntax->datum #'src-id) imports)
            (raise-syntax-error 'conflicting-identifiers 
                                (format "identifier ~v already imported" (syntax->datum #'src-id))
                                stx)
-           (let ([expands (map interpret-src-expr (syntax->list #'(src-expr ...)))])
-             (hash-set! src-table (syntax->datum #'src-id) expands)))]
-      [(def debug-id #:debug expr ...) (identifier? #'debug-id) ; expr ... is lazy evaluated, may contain unexpanded (ref ...) form
-       (hash-set! debug-table (syntax->datum #'debug-id) #'(expr ...))]
+           (let ([expands (interpret-src-expr #'src-expr)])
+             (hash-set! src-table (syntax->datum #'src-id) (list expands))))]
+      [(define-source (src-id args ...) body ...) (identifier? #'src-id)
+       (if (member (syntax->datum #'src-id) imports)
+           (raise-syntax-error 'conflicting-identifiers 
+                               (format "identifier ~v already imported" (syntax->datum #'src-id))
+                               stx)
+           (hash-set! src-table (syntax->datum #'src-id) (cons (syntax->list #'(args ...)) (syntax->list #'(body ...)))))] 
+      [(define-match debug-id expr ...) (identifier? #'debug-id)  ; expr ... is lazy evaluated, may contain unexpanded (ref ...) form
+       (hash-set! debug-table (syntax->datum #'debug-id) (syntax->list #'(expr ...)))]
+      [(define-match (debug-id args ...) expr ...) (identifier? #'debug-id)
+       (hash-set! debug-table (syntax->datum #'debug-id) (cons (syntax->list #'(args ...)) (syntax->list #'(expr ...))))]
       [(in #:module id expr ...)
        (if flag
            (let ([fn (path->string 
@@ -122,7 +133,11 @@
                                  (set! import-table (cons (import-struct layer-id exported) import-table))
                                  exported))
                              (syntax->list #'(id ...)))])
-         (set! imports (flatten imported-ids)))]
+         (set! imports (flatten imported-ids))
+         (for-each (lambda (i)
+                     (hash-set! src-table i 'import)
+                     (hash-set! debug-table i 'import))
+                   imports))]
       [(op id ...) (equal? 'export (syntax->datum #'op))
        (set! exports (map syntax->datum (syntax->list #'(id ...))))] 
       [else
@@ -130,38 +145,87 @@
   
   ; interpret-match-expr: syntax string-of-file-name -> void
   (define (interpret-match-expr stx fn)
-    (define (add-template f t r)
-      (let* ([fun (syntax->datum f)]
-             [ts (format "~a" (syntax->datum t))]
-             [str (substring ts 1 (sub1 (string-length ts)))]
-             [at-exprs (remove-duplicates (regexp-match* #px"@\\s\\(.+\\)" str))]
-             [at-vars (remove-duplicates (regexp-match* #px"@\\w+" str))]
-             [table (hash-ref template fn)])
-        (hash-set! table fun (list str (cons at-exprs at-vars) r))))
+    (define (get-escapes strs texts)
+      (define escapes null)
+      (for ([i (in-range (length strs))])
+        (let ([ele (list-ref strs i)])
+          (unless (member ele texts)
+            (set! escapes (cons (cons i (string-trim ele)) escapes)))))
+      escapes)
+    
+    (define (add-template f t)
+      (let* ([fun (format "~a" (syntax->datum f))]
+             [s (format "~v" (syntax->datum t))]
+             [ts (substring s 2 (sub1 (string-length s)))]
+             [str-lst (string-split ts "\"")]
+             [text-matches (regexp-match* #px"\"[^\"]*\"" ts)]
+             [text-lst (map (lambda (x) (string-replace x "\"" "")) text-matches)]
+             [escape-lst (get-escapes str-lst text-lst)]
+             [table (hash-ref template fn)]
+             [last (last str-lst)]
+             [r #f])
+        (when (regexp-match "#:renamed ret" last)
+          (set! str-lst (take str-lst (sub1 (length str-lst))))
+          (set! r (car (regexp-match #px"\\w+$" (string-trim last)))))
+        (hash-set! table fun (list str-lst escape-lst r))))
+
+    (define (substitute-match stx arg-ids args)
+      (define (substitute-aux s)
+        (cond
+          [(identifier? s)
+           (let loop ([i 0])
+             (if (>= i (length arg-ids))
+                 s
+                 (if (bound-identifier=? s (list-ref arg-ids i))
+                     (datum->syntax s (list-ref args i) s s)
+                     (loop (add1 i)))))]
+          [(syntax? s)
+           (substitute-aux (syntax-e s))]
+          [(pair? s)
+           (cons (substitute-aux (car s)) (substitute-aux (cdr s)))]
+          [else s]))
+      (quasisyntax/loc stx
+        #,(substitute-aux stx)))
+
+    (define (lookup-debug-import sym fun?)
+      (let iterate ([lst import-table])
+        (when (null? lst) 
+          (raise-syntax-error 'refer-to-unbound-variable 
+                              (format "id = ~a" sym)
+                              stx))
+        (if (member sym (import-struct-exported (car lst)))
+            (let ([found-expr (hash-ref (env-debug-table (hash-ref global-env (import-struct-layer-id (car lst)))) sym)])
+              (cond
+                [fun?
+                 (hash-set! debug-table sym found-expr)
+                 (interpret-match-expr stx fn)]
+                [else
+                 (for-each (lambda (e) (interpret-match-expr e fn)) found-expr)]))
+            (iterate (cdr lst)))))
       
-    (syntax-case stx (ref at with-behavior each-function renamed ret)
-      [(ref debug-id)
+    (syntax-case stx (at with-behavior each-function renamed ret)
+      [debug-id (hash-ref debug-table (syntax->datum #'debug-id) #f)
        (let* ([id (syntax->datum #'debug-id)]
-              [expr (hash-ref debug-table id #f)])
-         (cond
-           [expr
-            (for-each (lambda (e) (interpret-match-expr e fn)) (syntax->list expr))]
+              [res (hash-ref debug-table id #f)])
+         (case res
+           [(import) (lookup-debug-import id #f)]
            [else
-            (let iterate ([lst import-table])
-              (when (null? lst) 
-                (raise-syntax-error 'refer-to-unbound-variable 
-                                    (format "id = ~a" id)
-                                    stx))
-              (if (member id (import-struct-exported (car lst)))
-                  (let ([found-expr (hash-ref (env-debug-table (hash-ref global-env (import-struct-layer-id (car lst)))) id)])
-                     (for-each (lambda (e) (interpret-match-expr e fn)) (syntax->list found-expr)))
-                  (iterate (cdr lst))))]))]
-      
-      [(with-behavior f @ t)
-       (add-template #'f #'t #f)]
-      
-      [(with-behavior f @ t #:renamed ret r)
-       (add-template #'f #'t (format "~a" (syntax->datum #'r)))]
+            (for-each (lambda (e) (interpret-match-expr e fn)) res)]))]
+      [(debug-id args ...) (hash-ref debug-table (syntax->datum #'debug-id) #f)
+       (let* ([sym (syntax->datum #'debug-id)]
+              [res (hash-ref debug-table sym)])
+         (case res
+           [(import)
+            (lookup-debug-import sym #t)]
+           [else
+            (let* ([arg-ids (car res)]
+                   [body (cdr res)]
+                   [subs (map (lambda (s) (quasisyntax/loc s
+                                            #,(substitute-match s arg-ids (syntax->list #'(args ...)))))
+                         body)])
+              (for-each (lambda (e) (interpret-match-expr e fn)) subs))]))]
+      [(with-behavior f t)
+       (add-template #'f #'t)]
       
       [[each-function to-insert ...]
        (for-each (lambda (e) (interpret-insert-expr e fn (list 'each-function))) (syntax->list #'(to-insert ...)))]
@@ -236,31 +300,11 @@
       (let ([exist (hash-ref at-inserts fn '())])
         (hash-set! at-inserts fn (cons s exist))))
     
-    (syntax-case stx (on-entry on-exit ref)
-      [[on-entry (ref src-id)]
-       (let ([found (hash-ref src-table (syntax->datum #'src-id) #f)])
-         (cond
-           [found 
-            (interpret-border-expr (quasisyntax/loc stx [on-entry #,@found]) fn scope target-exp before after)]
-           [else
-            (raise-syntax-error 'refer-to-unbound-variable 
-                                (format "id = ~a" (syntax->datum #'src-id))
-                                stx)]))]
-      
+    (syntax-case stx (on-entry on-exit)
       [[on-entry src-expr ...]
        (let* ([exprs (map interpret-src-expr (syntax->list #'(src-expr ...)))]
               [at-struct (at-insert expr scope target-exp before after 'entry exprs)])
          (add-at-insert at-struct))]
-      
-      [[on-exit (ref src-id)]
-       (let ([found (hash-ref src-table (syntax->datum #'src-id) #f)])
-         (cond
-           [found 
-            (interpret-border-expr (quasisyntax/loc stx [on-exit #,@found]) fn scope target-exp before after)]
-           [else
-            (raise-syntax-error 'refer-to-unbound-variable
-                                (format "id = ~a" (syntax->datum #'src-id))
-                                stx)]))]
       
       [[on-exit src-expr ...]
        (let* ([exprs (map interpret-src-expr (syntax->list #'(src-expr ...)))]
@@ -277,37 +321,78 @@
       (syntax-property (syntax-property s 'layer current-layer-id)
                        'stamp (cons counter original-e)))
     
+    (define (substitute-body stx arg-ids args)
+      (define (substitute-aux s)
+        (cond
+          [(identifier? s)
+           (let loop ([i 0])
+             (if (>= i (length arg-ids))
+                 s
+                 (if (bound-identifier=? s (list-ref arg-ids i))
+                     (datum->syntax s (list-ref args i) s s)
+                     (loop (add1 i)))))]
+          [(syntax? s)
+           (substitute-aux (syntax-e s))]
+          [(pair? s)
+           (cons (substitute-aux (car s)) (substitute-aux (cdr s)))]
+          [else s]))
+      (quasisyntax/loc stx
+        #,(substitute-aux stx)))
+    
     (define (process-ref stx)
-      (syntax-case stx (ref)
-        [(ref src-id)
-         (begin 
-           (define id (syntax->datum #'src-id))
-           (define exprs (hash-ref src-table id #f))
-           (cond
-             [exprs 
-              (quasisyntax/loc stx
-                (begin 
-                  #,@(map interpret-src-expr exprs)))]
+      (define (lookup-import sym fun?)
+        (let iterate ([lst import-table])
+          (when (null? lst)
+            (raise-syntax-error 'refer-to-unbound-variable 
+                                (format "id = ~a" sym)
+                                stx))
+          (if (member sym (import-struct-exported (car lst)))
+              (let ([found-expr (hash-ref (env-src-table (hash-ref global-env (import-struct-layer-id (car lst)))) sym)])
+                (cond
+                  [fun?
+                   (hash-set! src-table sym found-expr)
+                   (process-ref stx)]
+                  [else
+                   (quasisyntax/loc stx
+                     (begin
+                       #,@(map interpret-src-expr found-expr)))]))
+              (iterate (cdr lst)))))
+        
+      (syntax-case stx ()
+        [id (identifier? #'id)
+         (let* ([sym (syntax->datum #'id)]
+                [res (hash-ref src-table sym)])
+           (case res
+             [(import) (lookup-import sym #f)]
              [else
-              (let iterate ([lst import-table])
-                (when (null? lst)
-                  (raise-syntax-error 'refer-to-unbound-variable 
-                                      (format "id = ~v" id)
-                                      stx))
-                (if (member id (import-struct-exported (car lst)))
-                    (let ([found-expr (hash-ref (env-src-table (hash-ref global-env (import-struct-layer-id (car lst)))) id)])
-                      (quasisyntax/loc stx
-                        (begin  
-                          #,@(map interpret-src-expr found-expr))))
-                    (iterate (cdr lst))))]))]))
+              (quasisyntax/loc stx
+                (begin #,@(map interpret-src-expr res)))]))]
+        [(id args ...)
+         (let* ([sym (syntax->datum #'id)]
+                [res (hash-ref src-table sym)])
+           (case res
+             [(import)
+              (lookup-import sym #t)]
+             [else
+              (let* ([arg-ids (car res)]
+                     [body (cdr res)]
+                     [subs-body (map (lambda (s) (substitute-body s arg-ids (syntax->list #'(args ...)))) body)])
+                (quasisyntax/loc stx
+                  (begin 
+                    #,@(map interpret-src-expr subs-body))))]))]))
     
     (define (traverse s)
       (cond
         [(syntax? s)
-         (syntax-case s (ref aggregate timeline assert log same?)
-           [(ref src-id) (process-ref s)]
+         (syntax-case s (aggregate timeline assert log same?)
+           [id (hash-ref src-table (syntax->datum #'id) #f)
+            (process-ref s)]
+      
+           [(id args ...) (hash-ref src-table (syntax->datum #'id) #f)
+            (process-ref s)]
            [(log v) (attach-stx-property s #'v)]
-           [(log v1 v2 ...) (process-log s)]
+           [(log v1 v2 ...)
+            (syntax-property (syntax-property stx 'layer current-layer-id) 'stamp (cons #f #f))]
            [(aggregate) 
             (raise-syntax-error #f "invalid-medic-expression" s)]
            [(aggregate v ...) 
@@ -326,39 +411,44 @@
                  (traverse ss)))]
         [else s]))
     
-    (define (process-log stx)
-      (syntax-case stx (log)
-        [(log v1 v2 ...)
-         (begin
-           (unless (equal? (length (regexp-match* "~a" (format "~a" (syntax->datum #'v1)))) (length (syntax->list #'(v2 ...))))
-             (raise-syntax-error #f "arity mismatch" stx))
-           (syntax-property (syntax-property stx 'layer current-layer-id)
-                            'stamp (cons #f #f)))]))
+    (syntax-case stx (aggregate timeline assert log same?)
+      [id (hash-ref src-table (syntax->datum #'id) #f)
+       (process-ref stx)]
       
-    (syntax-case stx (ref aggregate timeline assert log same?)
-      [(ref src-id) (process-ref stx)]
+      [(id args ...) (hash-ref src-table (syntax->datum #'id) #f)
+       (process-ref stx)]
       
       [(log v)
-       (attach-stx-property stx #'v)]
+       (let ([new-stx (quasisyntax/loc stx (log #,(interpret-src-expr #'v)))])
+         (attach-stx-property new-stx #'v))]
       
-      [(log v1 v2 ...) (process-log stx)]
+      [(log v1 v2 ...)
+       (let* ([rest-v (map interpret-src-expr (syntax->list #'(v2 ...)))]
+              [new-stx (quasisyntax/loc stx (log #,(interpret-src-expr #'v1) #,@rest-v))])
+         (syntax-property (syntax-property new-stx 'layer current-layer-id) 'stamp (cons #f #f)))]
       
       [(aggregate) 
        (raise-syntax-error #f "invalid-medic-expression" stx)]
       
-      [(aggregate v ...) 
-       (attach-stx-property stx (syntax->list #'(v ...)))]
+      [(aggregate v ...)
+       (let* ([vs (map interpret-src-expr (syntax->list #'(v ...)))]
+              [new-stx (quasisyntax/loc stx (aggregate #,@vs))])
+         (attach-stx-property new-stx (syntax->list #'(v ...))))]
       
       [(same? id) (not (identifier? #'id))
        (raise-syntax-error #f "invalid-medic-expression" stx)]      
       
       [(timeline id)
-       (attach-stx-property stx #'id)]
+       (let ([new-stx (quasisyntax/loc stx (timeline #,(interpret-src-expr #'id)))])
+         (attach-stx-property new-stx #'id))]
       
       [(assert cond)
-       (attach-stx-property stx #'cond)]
+       (let ([new-stx (quasisyntax/loc stx (assert #,(interpret-src-expr #'cond)))])
+         (attach-stx-property new-stx #'cond))]
       
-      [else (traverse stx)]))
+      [else
+       (quasisyntax/loc stx
+         #,(traverse stx))]))
   
   (syntax-case stx (begin layer)
     [(begin (layer layer-id layer-expr ...) ...)
@@ -375,10 +465,10 @@
 (define layer #f)
 (define export #f)
 (define import #f)
-(define def #f)
+(define define-source #f)
+(define define-match #f)
 (define in #f)
 (define with-behavior #f)
-(define ref #f)
 (define each-function #f)
 (define on-entry #f)
 (define on-exit #f)

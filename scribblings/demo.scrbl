@@ -7,7 +7,7 @@
                      racket/contract/base
                      medic/trace
                      (only-in medic/main 
-                              layer export import def in with-behavior ref each-function
+                              layer export import define-source define-match in with-behavior each-function
                               on-entry on-exit at)))
 
 @title[#:style '(toc)]{Medic by Example}
@@ -109,26 +109,24 @@ The @racket[at-expr] pattern matching with @racket[before-expr] and @racket[afte
 @bold{@tt{src2-medic.rkt:}}
 @codeblock{
 #lang medic
-
 (layer layer1 
        (in #:module "src2.rkt"
            ; match two instances of (inc-counter)
-           [at (inc-counter) [on-entry (log "[1]in ~a: inc-counter" @"@"function-name)]]
+           [at (inc-counter) [on-entry @"@"log{[1] in @"@"function-name : int-counter}]]
            
            ; match two instances of (+ x 1)
-           [at (+ x 1) #:before (inc-counter) [on-entry (log "[2]in ~a: (+ x 1)" @"@"function-name)]]
+           [at (+ x 1) #:before (inc-counter) [on-entry @"@"log{[2]in @"@"function-name : (+ x 1)}]]
            
            ; only match (+ x 1) in g function
            [at (+ x 1) #:before (begin (define x (inc 4)) _)
-               [on-entry (log "[3]in ~a: (+ x 1)" @"@"function-name)]]
-           [(g) [at (+ x 1) [on-entry (log "[4]in ~a: (+ x 1)" @"@"function-name)]]]
+               [on-entry @"@"log{[3]in @"@"function-name : (+ x 1)}]]
+           [(g) [at (+ x 1) [on-entry @"@"log{[4]in @"@"function-name : (+ x 1)}]]]
            
            ; only match (inc-counter) in function g
            [at (inc-counter) #:before (define x (inc 4)) #:after (+ x 1)
-               (on-entry (log "[5]in ~a: (inc-counter)" @"@"function-name))]
+               (on-entry @"@"log{[5]in @"@"function-name : (inc-counter)})]
            [at (inc-counter) #:before (define x (inc _)) #:after (+ x 1)
-               (on-entry (log "[6]in ~a: (inc-counter)" @"@"function-name))]))
-
+               (on-entry @"@"log{[6]in @"@"function-name : (inc-counter)})]))
 }
 @section{Demo 3: multiple functions scope}
 Multiple functions involved in the debugging activity.
@@ -154,13 +152,12 @@ Multiple functions involved in the debugging activity.
 @bold{@tt{src3-medic.rkt:}}
 @codeblock{
 #lang medic
-
 (layer layer1 
        (in #:module "src3.rkt"
            ; scope of multiple functions 
-           [(g inc) [on-entry (log "function ~a: x = ~a" @"@"function-name x)]]
+           [(g inc) [on-entry @"@"log{function @"@"function-name : x = @"@"x}]]
            ; each-function primitive
-           [each-function [on-entry (log "function ~a entered" @"@"function-name)]]))
+           [each-function [on-entry @"@"log{function @"@"function-name entered}]]))
 }
 
 @section{Demo 4: @tt{with-behavior}}
@@ -213,25 +210,23 @@ Multiple functions involved in the debugging activity.
 (layer layer1
        (export log-function-entry)
        ; debug-src-id definition
-       (def init-defs #:src (define id-count 0)
-                            (define (inc-id-count) (set! id-count (add1 id-count))))
-       (def inc-id-count #:src (inc-id-count))
-       (def display-count #:src (log id-count))
+       (define-source (init-defs) 
+         (define id-count 0)
+         (define (inc-id-count) (set! id-count (add1 id-count))))
+       (define-source (display-count) (log id-count))
        ; debug-id definition
-       (def log-function-entry 
-         #:debug 
-         [each-function [on-entry (log "function ~a entered" @"@"function-name)]])
+       (define-match (log-function-entry pos) 
+         [each-function [pos @"@"log{function @"@"function-name entered}]])
        (in #:module "src5.rkt"
-           [on-entry (ref init-defs)]
-           [at (define _ _) [on-entry (ref inc-id-count)]]
-           (ref log-function-entry)
-           [on-exit (ref display-count)]))
+           [on-entry (init-defs)]
+           [at (define _ _) [on-entry (inc-id-count)]]
+           (log-function-entry on-entry)
+           [on-exit (display-count)]))
 
 (layer layer2
        (import layer1)
        (in #:module "f.rkt"
-           (ref log-function-entry))
+           (log-function-entry on-exit))
        (in #:module "src5.rkt"
            [on-exit (log t)]))
-
 }

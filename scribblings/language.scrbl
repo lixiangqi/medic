@@ -7,7 +7,7 @@
                      racket/contract/base
                      medic/trace
                      (only-in medic/main 
-                              layer export import def in with-behavior ref each-function
+                              layer export import define-source define-match in with-behavior each-function
                               on-entry on-exit at function-name)))
 
 @title{A Metaprogramming Language}
@@ -23,7 +23,8 @@ a modified program later during the process of software development.
 Here is the grammar for the Medic metaprogramming language:
 
 @(racketgrammar* 
-  #:literals (layer export import def in with-behavior ref each-function
+  #:literals (layer export import define-source define-match
+              in with-behavior each-function
               on-entry on-exit at)
   [top-level-form layer-def...]        
   [layer-def (layer layer-id layer-form ...)
@@ -32,11 +33,13 @@ Here is the grammar for the Medic metaprogramming language:
               (import layer-id ...)
               debug-def
               (in #:module module-name match-form ...)]
-  [debug-def (def debug-src-id #:src source-expr ...)
-             (def debug-id #:debug match-form ...)]
+  [debug-def (define-source debug-src-id source-expr)
+             (define-source (debug-src-id arg-id ...) source-expr ...)
+             (define-match debug-id match-form)
+             (define-match (debug-id arg-id ...) match-form ...)]
   [match-form (with-behavior f template)
               (with-behavior f template #:renamed ret id)
-              (ref debug-id)
+              match-ref-form
               insert-form
               [each-function insert-form ...]
               [(f ...) insert-form ...]]
@@ -50,13 +53,17 @@ Here is the grammar for the Medic metaprogramming language:
            [at location-form #:before location-form #:after location-form border-form ...]]
   [location-form target-language-expression
                  expression-pattern]
-  [source-expr (ref debug-src-id)
+  [source-expr src-ref-form
                target-language-expression]
+  [match-ref-form debug-id
+                  (debug-id match-arg ...)]
+  [src-ref-form debug-src-id
+                (debug-src-id src-arg ...)]
   [flag boolean]
   [f variable-not-otherwise-mentioned]
   [id variable-not-otherwise-mentioned]
   [layer-id variable-not-otherwise-mentioned]
-  [debug-src-id variable-not-otherwise-mentioned]
+  [(debug-src-id arg-id) variable-not-otherwise-mentioned]
   [debug-id variable-not-otherwise-mentioned])
 
 @defform*[((layer layer-id layer-form ...)
@@ -74,17 +81,13 @@ layer definition.}
 @defform[(import layer-id ...)]{
 Declares imports of a layer where the @racketvarfont{layer-id} is some layer identifier.}
 
-@defform*[((def debug-src-id #:src source-expr ...)
-           (def debug-id #:debug match-expr ...))]{
-Binds @racketvarfont{debug-src-id} to a sequence of source expressions following the
-@racket[#:src] keyword and @racketvarfont{debug-id} to a sequence of medic expressions
-following the @racket[#:debug] keyword.}
+@defform*[((define-source debug-src-id source-expr)
+           (define-source (debug-src-id arg-id ...) source-expr ...))]{
+Binds @racketvarfont{debug-src-id} to a sequence of source expressions.}
 
-@defform*[((ref debug-src-id)
-           (ref debug-id))]{
-Accesses the corresponding source expressions or medic expressions bound by 
-@racketvarfont{debug-src-id} or @racketvarfont{debug-id}.
-}
+@defform*[((define-match debug-id match-form)
+           (define-match (debug-id arg-id ...) match-form ...))]{
+Binds @racketvarfont{debug-id} to a sequence of match forms.}
 
 @defform[(in #:module module-name match-expr ...)]{
 Specifies the module to apply debugging code. The @racketvarfont{module-name} 

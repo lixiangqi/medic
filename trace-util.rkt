@@ -68,9 +68,8 @@
      (hash-set! raw-edges (cons from to) (list edge-label from-label to-label bi-directed? color))])
   (set! show-browser? #t))
 
-(define (delete-node n) 
-  (when (hash? raw-nodes)
-    (hash-remove! raw-nodes n))
+(define (delete-node n)
+  (set! raw-nodes (filter (lambda (i) (not (equal? (car i) n))) raw-nodes))
   (when (hash? raw-edges)
     (for ([edge (hash-keys raw-edges)])
       (when (or (equal? (car edge) n) (equal? (cdr edge) n))
