@@ -70,7 +70,7 @@
     
     (define/private (initialize-layer-frame)
       (set! layer-frame (new frame% 
-                             [label "Layer Viewer"]
+                             [label "Layer View"]
                              [width 400]
                              [height 400]))
       (set! layer-panel (new vertical-panel% [parent layer-frame]))
@@ -128,7 +128,7 @@
       (compiled-bitmap (pict->bitmap (cc-superimpose (colorize (filled-rectangle 18 6) "red")
                                                      (colorize (filled-rectangle 6 18) "red")))))
     (new switchable-button%
-         [label "Log Viewer"]
+         [label "Log View"]
          [bitmap medic-bitmap]
          [min-width-includes-label? #t]
          [vertical-tight? #t]
@@ -179,7 +179,7 @@
                         [parent slider-panel]
                         [callback on-step]))
     (new switchable-button%
-         [label "Time Viewer"]
+         [label "Time View"]
          [bitmap medic-bitmap]
          [min-width-includes-label? #t]
          [vertical-tight? #t]

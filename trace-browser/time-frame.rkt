@@ -13,7 +13,7 @@
     (init-field (data #f)
                 (max-time #f))
     (inherit get-area-container)
-    (super-new (label "Time Viewer")
+    (super-new (label "Time View")
                (width 400)
                (height 400))
     
