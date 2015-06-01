@@ -169,11 +169,11 @@ Suppose we want to insert some @racket[log] expressions to see how the tree is t
 
 (layer left-path
        (in #:module "find-path.rkt"
-           [(at (if left-p _ _)) [on-entry (log "left branch: ~a, ~a" (cadr t) left-p)]]))
+           [at (if left-p _ _) [on-entry (log "left branch: ~a, ~a" (cadr t) left-p)]]))
  
 (layer right-path
        (in #:module "find-path.rkt"
-           [(at (if right-p _ _)) [on-entry (log "right branch: ~a, ~a" (caddr t) right-p)]]))
+           [at (if right-p _ _) [on-entry (log "right branch: ~a, ~a" (caddr t) right-p)]]))
 }
 We start a debugging session, and a trace browser is opened after the evaluation of Medic programs and augmented source programs.
 @centered{@image{scribblings/layer1.png}}
