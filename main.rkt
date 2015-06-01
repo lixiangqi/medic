@@ -392,7 +392,7 @@
             (process-ref s)]
            [(log v) (attach-stx-property s #'v)]
            [(log v1 v2 ...)
-            (syntax-property (syntax-property stx 'layer current-layer-id) 'stamp (cons #f #f))]
+            (syntax-property (syntax-property s 'layer current-layer-id) 'stamp (cons #f #f))]
            [(aggregate) 
             (raise-syntax-error #f "invalid-medic-expression" s)]
            [(aggregate v ...) 
