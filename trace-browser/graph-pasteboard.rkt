@@ -3,7 +3,7 @@
 (require mrlib/graph
          racket/gui/base
          (only-in racket/string string-normalize-spaces)
-         (only-in unstable/gui/pict dark light)
+         (only-in pict/color dark light)
          "quadtree.rkt")
 
 (provide graph-pasteboard%)
