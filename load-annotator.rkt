@@ -76,8 +76,11 @@
           (lambda ()
             (let* ([stx (parameterize ([current-namespace (make-base-namespace)])
                           (read-syntax src in-port))]
-                   [new-at-table (process-at-table stx at-table)])
-              (let* ([inserted (insert-stx (check-module-form (expand stx) m fn) insert-table new-at-table template)]
+                   [new-at-table (process-at-table stx at-table)]
+                   [expanded-stx (check-module-form (expand stx) m fn)]
+                   [default-ctx (syntax-case expanded-stx ()
+                                  [(mod name initial-req . _) #'initial-req])])
+              (let* ([inserted (insert-stx expanded-stx insert-table new-at-table template default-ctx)]
                      [second (read in-port)])
                 (unless (eof-object? second)
                   (raise-syntax-error

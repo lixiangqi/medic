@@ -132,7 +132,7 @@
                       (format "~a" from-label) (format "~a" to-label)
                       color))]))
   
-  (define (wrap-context s bindings function-id)
+  (define (wrap-context s bindings function-id default-context)
     
     (define (lookup id)
       (findf (lambda (v)
@@ -143,11 +143,11 @@
       (cond
         [(identifier? stx)
          (if (and (syntax? stx) (equal? (syntax->datum stx) 'function-name))
-             (datum->syntax #f function-id)
+             (datum->syntax default-context function-id)
              (let ([bound (lookup stx)])
                (if bound
                    (datum->syntax bound (syntax->datum stx) stx stx)
-                   stx)))]
+                   (datum->syntax default-context (syntax->datum stx) stx stx))))]
         [(syntax? stx)
          (let* ([res (wrap-context-aux (syntax-e stx))]
                 [op (if (pair? res) (car res) #f)]
@@ -156,7 +156,7 @@
              [(not op) res]
              [(equal? op-sym 'log)
               (let ([label (cdr (syntax-property op 'stamp))])
-                (log-expression-annotator (datum->syntax #f (cdr res) op) label (format "~a" (syntax-property op 'layer))))]
+                (log-expression-annotator (datum->syntax default-context (cdr res) op) label (format "~a" (syntax-property op 'layer))))]
              [(equal? op-sym 'aggregate)
               (let* ([stamp (syntax-property op 'stamp)]
                      [id (car stamp)]
@@ -165,9 +165,9 @@
                 (quasisyntax/loc op
                   (#,record-aggregate #,id (list #,@labels) (list #,@args))))]
              [(equal? op-sym 'node)
-              (node-expression-annotator (datum->syntax #f (cdr res) op))]
+              (node-expression-annotator (datum->syntax default-context (cdr res) op))]
              [(equal? op-sym 'edge)
-              (edge-expression-annotator (datum->syntax #f (cdr res) op))]
+              (edge-expression-annotator (datum->syntax default-context (cdr res) op))]
              [(equal? op-sym 'remove-node)
               (let ([n (cadr res)])
                 (quasisyntax/loc stx
@@ -205,7 +205,7 @@
     (wrap-context-aux s)
     )
   
-  (define (insert-stx stx insert-table at-table t)
+  (define (insert-stx stx insert-table at-table t default-context)
     (define top-level-ids '())
     (define let-exit '())
     (define internal-let? #f)
@@ -247,8 +247,8 @@
       
       (define res (traverse stx))
       (if (syntax? stx)
-          (datum->syntax #f res stx stx)
-          (datum->syntax #f res)))
+          (datum->syntax default-context res stx stx)
+          (datum->syntax default-context res)))
     
     ; when local? is #t, match at-pattern expression within function scope
     (define (match-at-table old-stx new-stx local? [bounds '()] [before-bounds '()] [after-bounds '()] [id #f])
@@ -287,7 +287,8 @@
                         [(entry) 
                          (iterate (rest lst)
                                   (syntax-property (quasisyntax/loc old-stx (begin #,@(map (lambda (e)
-                                                                                             (wrap-context (convert-stx e) before-ids id))
+                                                                                             (wrap-context (convert-stx e) before-ids id
+                                                                                                           default-context))
                                                                                            insert-exprs)
                                                                                    #,result-stx))
                                                    'debug #t))]
@@ -295,7 +296,8 @@
                          (iterate (rest lst)
                                   (syntax-property (quasisyntax/loc old-stx (begin #,result-stx
                                                                                    #,@(map (lambda (e)
-                                                                                             (wrap-context (convert-stx e) after-ids id))
+                                                                                             (wrap-context (convert-stx e) after-ids id
+                                                                                                           default-context))
                                                                                            insert-exprs)))
                                                    'debug #t))]))
                     (iterate (rest lst) result-stx))))))
@@ -344,8 +346,8 @@
                                              (#%plain-app #,record-start-time (current-inexact-milliseconds))
                                              (define old (current-inspector))
                                              (current-inspector (make-inspector old))
-                                             #,(datum->syntax #f '(#%require medic/trace))
-                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f))
+                                             (#%require #,(datum->syntax #f 'medic/trace))
+                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f default-context))
                                                   entry-exprs)
                                              #,@(map (lambda (e) (module-level-expr-iterator e))
                                                      (syntax->list #'module-level-exprs))))))]
@@ -359,12 +361,12 @@
                                              (#%plain-app #,record-start-time (current-inexact-milliseconds))
                                              (define old (current-inspector))
                                              (current-inspector (make-inspector old))
-                                             #,(datum->syntax #f '(#%require medic/trace))
-                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f))
+                                             (#%require #,(datum->syntax #f 'medic/trace))
+                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f default-context))
                                                   entry-exprs)
                                              #,@(map (lambda (e) (module-level-expr-iterator e))
                                                      (syntax->list #'module-level-exprs))
-                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f))
+                                             #,@(map (lambda (e) (wrap-context e top-level-ids #f default-context))
                                                   exit-exprs)))))])))])]))
     
   
@@ -453,7 +455,7 @@
                     (quasisyntax/loc expr
                       (label (((var ...) new-rhs/trans) ...)
                              #,@bodies
-                             #,@(map (lambda (e) (wrap-context e (append all-bindings top-level-ids) id))
+                             #,@(map (lambda (e) (wrap-context e (append all-bindings top-level-ids) id default-context))
                                      let-exit))))))
             (set! let-exit 'no-exit-exprs)
             (set! internal-let? #t)
@@ -487,19 +489,19 @@
                (define with-entry-body (quasisyntax/loc clause
                                          (arg-list
                                           #,@(map (lambda (e) 
-                                                    (wrap-context e bindings id))
+                                                    (wrap-context e bindings id default-context))
                                                   entry-exprs)
                                           #,@new-bodies)))
                (define with-exit-body 
                  (lambda ()
                    (quasisyntax/loc clause
                      (arg-list
-                      #,@(map (lambda (e) (wrap-context e bindings id))
+                      #,@(map (lambda (e) (wrap-context e bindings id default-context))
                               entry-exprs)
                       (begin0
                         (begin
                           #,@new-bodies)
-                        #,@(map (lambda (e) (wrap-context e bindings id))
+                        #,@(map (lambda (e) (wrap-context e bindings id default-context))
                                 exit-exprs))))))
                (if (null? exit-exprs)
                    with-entry-body
